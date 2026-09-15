@@ -1,0 +1,17 @@
+# Pin the MSRV declared by the language contract.
+# rustup is not required and must not be installed as part of this project.
+# Termux rustc older than 1.87 cannot honor this file (A2).
+#
+# Edition 2024 facts that bind this pin (RFC 3501, stable in rustc 1.85.0):
+# - edition = "2024" is valid only on rustc >= 1.85.0; this crate pins 1.87.0
+# - edition = "2024" implies Cargo resolver = "3" (rust-version-aware)
+# - gen is a reserved keyword; gen blocks are not stable; do not name items gen
+# - #"..."# unprefixed guarded strings and ## tokens are reserved
+# - prelude adds Future and IntoFuture (unused under D4; watch poll ambiguity)
+# - extern blocks and export_name/link_section/no_mangle need unsafe; D5 forbids FFI
+# - std::env::set_var / remove_var are unsafe; do not call them
+# - rustup is forbidden; this file is a pin for environments that already have rustup
+[toolchain]
+channel = "1.87.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
