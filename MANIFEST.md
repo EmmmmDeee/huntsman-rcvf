@@ -73,7 +73,8 @@ The crate package name remains `huntsman`. The repository name is
     .github/workflows/ci.yml after source files, if continue requests CI
 
 No workspace members. No extra crates.io packages beyond clap, serde,
-serde_json, thiserror, anyhow, toml.
+serde_json, thiserror, anyhow. Optional config.toml is parsed by a
+minimal subset reader in src/config.rs (no `toml` crate).
 
 ## Emission order
 
@@ -104,13 +105,54 @@ success.
 
 Exact Termux command:
 
-    pkg install rustc cargo git
+    pkg install rust git
 
-No other system libraries. No OpenSSL. No proot. No sudo.
+The Termux package name is `rust`. It installs `rustc` and `cargo` into
+`$PREFIX/bin`. There are no `rustc` or `cargo` packages in
+termux-main. `git` is a separate package.
 
-If the Termux rustc package is older than 1.87, rustup is not used
-(uncommitted toolchain). That case is an unresolved platform limitation
-and is flagged below — do not emit rustup instructions.
+No other system libraries for this crate. No OpenSSL link. No proot.
+No sudo. rustup is not used and must not be installed by this project:
+the stable channel has no host binaries for `aarch64-linux-android`.
+
+`rust-toolchain.toml` is a pin for hosts that already have rustup
+(GitHub Actions). Termux `pkg` rust ignores that file.
+
+If the installed `rustc` is older than 1.87, that is an unresolved
+device limitation — do not emit rustup instructions.
+
+## Termux host facts (investigation 2026-09-15)
+
+FACT (pool): termux-main currently ships
+`rust_1.98.1_aarch64.deb` (packages.termux.dev pool listing dated
+2026-09-04). Edition 2024 is valid on that compiler (edition 2024
+stabilized in 1.85.0).
+
+FACT (recipe): termux-packages `packages/rust` is one package plus
+std/docs/src subpackages. Separate main-pool packages observed:
+`rust-analyzer`. No separate `clippy` or `rustfmt` packages in the
+r/ index listing.
+
+FACT (host): Termux prefix is
+`/data/data/com.termux/files/usr`. Shell is
+`/data/data/com.termux/files/usr/bin/bash`. Unprivileged Android
+app user. Writable paths: `$HOME`, `$TMPDIR`, `$PREFIX` only where
+pkg owns files.
+
+FACT (sandbox): this emission host is rustc 1.75.0 and cannot
+generate an edition-2024 Cargo.lock.
+
+FACT (not this crate): HSE repair script
+`$HOME/huntsman/hse-fix-all.sh` targets a different binary (`hse`,
+port 8080, `$HOME/.huntsman.env`). D9 still forbids absorbing that
+tree.
+
+INFERENCE: a current Termux `pkg upgrade && pkg install rust` is
+expected to satisfy MSRV 1.87. Not yet observed on the operator
+handset.
+
+ASSUMPTION still open: the operator device actually has rust 1.98.1
+installed. Confirm with `rustc --version` on device.
 
 ## Language and quality contract (applied)
 
@@ -201,17 +243,24 @@ D10. Host on GitHub at EmmmmDeee/huntsman-rcvf, public, branch main.
      Rejected: private default without an operator secrecy
      requirement.
 
+D11. Termux system package is `rust`, command `pkg install rust git`.
+     Rejected: `pkg install rustc cargo` (those package names do not
+     exist in termux-main; pkg will tell the operator to install
+     `rust`).
+
 ## Rejected alternatives (summary)
 
 - Markdown templates with no binary: not software under this contract.
 - Interactive TUI: extra crates, unclear aarch64 terminal assumptions.
 - Server mode / bind port: unnecessary attack surface on a phone.
-- rustup install of 1.87: uncommitted toolchain; forbidden.
+- rustup install of 1.87: uncommitted toolchain; forbidden; also
+  cannot host on aarch64-linux-android.
 - Hand-written Cargo.lock without cargo: false pin.
 - Absorbing HSE query-pack into this crate: different binary, HTTP,
   credentials, and provider policy; violates D1, D4, D5, SIMPLIFY.
 - GitHub as a runtime store for sessions: would require network and
   credentials at run time; violates the offline Termux contract.
+- TUR `rustc-nightly`: extra repo, extra path, unjustified for MSRV.
 
 ## Flagged ambiguities
 
@@ -225,13 +274,17 @@ A1. Product identity is the strongest way this plan could be wrong.
     If the intended host is the HSE repo instead, say so and this
     MANIFEST must be revised before further pushes.
 
-A2. Termux rustc version on the operator device is unknown. This
-    sandbox rustc is 1.75.0 and cannot generate a valid edition-2024
-    lockfile. Cargo.lock may remain unemitted.
+A2. Operator-device rustc is still unobserved. Current termux-main
+    pool rust is 1.98.1 aarch64 (2026-09-04), which would satisfy
+    MSRV. This sandbox rustc is 1.75.0 and cannot generate a valid
+    edition-2024 lockfile. Cargo.lock may remain unemitted until a
+    1.87+ host runs `cargo generate-lockfile`. Clippy-on-device is
+    unverified (no separate clippy package in the r/ index).
 
-A3. clap 4 / serde 1 / thiserror 2 / anyhow 1 / toml 0.8 are pure
-    Rust and treated as aarch64-safe. If a later file needs any other
-    crate, stop and resolve aarch64 before emitting that file.
+A3. clap 4 / serde 1 / thiserror 2 / anyhow 1 are pure Rust and
+    treated as aarch64-safe. Config TOML is a hand parser, not the
+    `toml` crate. If a later file needs any other crate, stop and
+    resolve aarch64 before emitting that file.
 
 A4. Session identity UX (short id vs title vs path) is assumed as
     above. Not specified by the operator.
@@ -254,7 +307,7 @@ A9. LICENSE file text was not chosen beyond Cargo.toml
 
 ## Assumptions (material)
 
-- Operator can run pkg install rustc cargo git and cargo build --release.
+- Operator can run `pkg install rust git` and `cargo build --release`.
 - $HOME is writable. $HOME/huntsman/var may be created by the binary.
 - One operator, one device, no concurrent writers to the same session.
 - RCVF stage semantics follow the operator paste and EmmmmDeee/rcvf
@@ -283,6 +336,8 @@ None. No todo!(), no unimplemented!(), no ignored tests.
 ## Residual uncertainty (this manifest)
 
 A1 (recorder vs HSE) remains open.
+A2 (device rustc version) narrowed to pool 1.98.1, still unobserved
+on the handset.
 A8 (public vs private) assumed public.
 A9 (LICENSE file) unset.
 
