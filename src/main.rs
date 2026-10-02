@@ -27,6 +27,7 @@ fn main() -> ExitCode {
         Some("classify") => classify(args.next(), args.next()),
         Some("session") => session_cmd(args.collect()),
         Some("run") => run_cmd(args.next()),
+        Some("lookup") => lookup_cmd(args.next(), args.next()),
         Some("check") | None => check(),
         Some(other) => {
             eprintln!("unknown command: {other}");
@@ -38,7 +39,7 @@ fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: huntsman-recon check | run CASE_DIR | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
+        "usage: huntsman-recon check | run CASE_DIR | lookup wikidata|nominatim QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
     );
 }
 
@@ -310,6 +311,97 @@ fn mutate(store: &Store, id: &str, op: impl FnOnce(&mut Session) -> Result<(), h
     }
     println!("{}", session.id);
     ExitCode::SUCCESS
+}
+
+fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
+    let (Some(kind), Some(query)) = (kind, query) else {
+        eprintln!("usage: huntsman-recon lookup wikidata|nominatim QUERY");
+        return ExitCode::from(64);
+    };
+    let url = match kind.as_str() {
+        "wikidata" => format!(
+            "https://www.wikidata.org/w/api.php?action=wbsearchentities&search={}&language=en&format=json&limit=3",
+            urlencoding(&query)
+        ),
+        "nominatim" => format!(
+            "https://nominatim.openstreetmap.org/search?q={}&format=jsonv2&limit=1",
+            urlencoding(&query)
+        ),
+        other => {
+            eprintln!("unknown source: {other}");
+            return ExitCode::from(64);
+        }
+    };
+    let body = match curl_get(&url) {
+        Ok(body) => body,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::from(66);
+        }
+    };
+    let hits = match kind.as_str() {
+        "wikidata" => huntsman_recon::external::parse_wikidata_search(&body),
+        "nominatim" => huntsman_recon::external::parse_nominatim(&body),
+        _ => unreachable!(),
+    };
+    let hits = match hits {
+        Ok(hits) => hits,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::from(65);
+        }
+    };
+    let hash = huntsman_recon::sha256::hex32(&huntsman_recon::sha256::sha256(body.as_bytes()));
+    println!("source={kind}");
+    println!("url={url}");
+    println!("sha256={hash}");
+    println!("hits={}", hits.len());
+    for hit in &hits {
+        println!(
+            "{}\t{}\t{}\t{}",
+            hit.id,
+            hit.label,
+            hit.lat.map(|v| format!("{v:.5}")).unwrap_or_default(),
+            hit.lon.map(|v| format!("{v:.5}")).unwrap_or_default()
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+fn urlencoding(raw: &str) -> String {
+    let mut out = String::new();
+    for byte in raw.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(byte as char),
+            b' ' => out.push('+'),
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+fn curl_get(url: &str) -> Result<String, String> {
+    let output = std::process::Command::new("curl")
+        .args([
+            "-sS",
+            "-A",
+            "huntsman-recon/0.5.0 (single lookup)",
+            "--max-time",
+            "20",
+            "-w",
+            "\n%{http_code}",
+            url,
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let (body, status) = text.rsplit_once('\n').unwrap_or((text.as_ref(), "0"));
+    let status: u16 = status.trim().parse().unwrap_or(0);
+    huntsman_recon::external::admit_body(status, body).map_err(|e| e.to_string())?;
+    Ok(body.to_owned())
 }
 
 fn run_cmd(dir: Option<String>) -> ExitCode {

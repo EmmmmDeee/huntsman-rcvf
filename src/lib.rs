@@ -1,6 +1,5 @@
-//! Offline reconstructed huntsman 0.4.0.
-//! One case run composes identity, geoint, retrieval, ledger, and session.
-//! No network client. Challenge pages are not results.
+//! Offline case core plus two verified public parsers.
+//! Live fetch is a single curl lookup. Challenge pages are not results.
 //! A technique id enters Navigator only from an in-crate binding. The table is empty.
 
 #![deny(unsafe_code)]
@@ -8,6 +7,7 @@
 pub mod case;
 pub mod classify;
 pub mod error;
+pub mod external;
 pub mod geoint;
 pub mod identity;
 pub mod ledger;
