@@ -145,6 +145,42 @@ fn between<'a>(body: &'a str, start: &str, end: &str) -> Option<&'a str> {
     Some(rest.split_once(end)?.0)
 }
 
+/// Exa search JSON. A 402 or an error tag is not a hit.
+pub fn parse_exa(status: u16, body: &str) -> Result<Vec<SourceHit>, Error> {
+    if status == 402 || body.contains("X402_PAYMENT_REQUIRED") {
+        return Err(Error::Invalid("exa payment required".into()));
+    }
+    admit_body(status, body)?;
+    let value: Value = serde_json::from_str(body).map_err(|e| Error::Invalid(e.to_string()))?;
+    if value.get("error").is_some() {
+        return Err(Error::Invalid("exa error".into()));
+    }
+    let Some(rows) = value.get("results").and_then(Value::as_array) else {
+        return Err(Error::Invalid("exa results missing".into()));
+    };
+    let mut hits = Vec::new();
+    for row in rows {
+        let Some(url) = row.get("url").and_then(Value::as_str) else {
+            continue;
+        };
+        let highlight = row
+            .get("highlights")
+            .and_then(Value::as_array)
+            .and_then(|a| a.first())
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        hits.push(SourceHit {
+            id: row.get("id").and_then(Value::as_str).unwrap_or(url).to_owned(),
+            label: row.get("title").and_then(Value::as_str).unwrap_or(url).to_owned(),
+            detail: highlight.to_owned(),
+            lat: None,
+            lon: None,
+            source: "exa".into(),
+        });
+    }
+    Ok(hits)
+}
+
 /// Two public fixes. Returns meters. Does not infer identity.
 #[must_use]
 pub fn separation_m(left: &SourceHit, right: &SourceHit) -> Option<f64> {
@@ -171,5 +207,10 @@ mod tests {
         assert_eq!(abn[0].id, "53004085616");
         let sets = parse_datagov(include_str!("../fixtures/datagov-brisbane.json")).unwrap();
         assert_eq!(sets[0].label, "Events — Brisbane parks");
+        assert!(parse_exa(402, include_str!("../fixtures/exa-402.json")).is_err());
+        let schema = r#"{"results":[{"id":"schema","title":"Schema example","url":"https://exa.ai/docs","highlights":["not a live hit"]}]}"#;
+        let parsed = parse_exa(200, schema).unwrap();
+        assert_eq!(parsed[0].source, "exa");
+        assert_eq!(parsed[0].label, "Schema example");
     }
 }

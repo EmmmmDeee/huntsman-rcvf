@@ -333,24 +333,35 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
             "https://data.gov.au/data/api/3/action/package_search?q={}&rows=50",
             urlencoding(&query)
         ),
+        "exa" => "https://api.exa.ai/search".into(),
         other => {
             eprintln!("unknown source: {other}");
             return ExitCode::from(64);
         }
     };
-    let (status, body) = match curl_get(&url) {
-        Ok(pair) => pair,
-        Err(err) => {
-            eprintln!("{err}");
-            return ExitCode::from(66);
+    let (status, body) = if kind == "exa" {
+        match curl_post_exa(&query) {
+            Ok(pair) => pair,
+            Err(err) => {
+                eprintln!("{err}");
+                return ExitCode::from(66);
+            }
+        }
+    } else {
+        match curl_get(&url) {
+            Ok(pair) => pair,
+            Err(err) => {
+                eprintln!("{err}");
+                return ExitCode::from(66);
+            }
         }
     };
-    if kind != "abn" {
+    if kind != "abn" && kind != "exa" {
         if let Err(err) = huntsman_recon::external::admit_body(status, &body) {
             eprintln!("{err}");
             return ExitCode::from(65);
         }
-    } else if !(200..300).contains(&status) {
+    } else if kind == "abn" && !(200..300).contains(&status) {
         eprintln!("ABN HTTP {status}");
         return ExitCode::from(65);
     }
@@ -359,6 +370,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
         "nominatim" => huntsman_recon::external::parse_nominatim(&body),
         "abn" => huntsman_recon::external::parse_abn_html(&body),
         "datagov" => huntsman_recon::external::parse_datagov(&body),
+        "exa" => huntsman_recon::external::parse_exa(status, &body),
         _ => unreachable!(),
     };
     let hits = match hits {
@@ -402,6 +414,14 @@ fn gather_cmd(query: Option<String>) -> ExitCode {
             _ => failed += 1,
         }
     }
+    println!("--- exa");
+    if env::var_os("EXA_API_KEY").is_none_or(|v| v.is_empty()) {
+        println!("source=exa");
+        println!("status=missing_key");
+        failed += 1;
+    } else if lookup_cmd(Some("exa".into()), Some(query.clone())).ne(&ExitCode::SUCCESS) {
+        failed += 1;
+    }
     if digits_only(&query).len() == 11 {
         println!("--- abn");
         if lookup_cmd(Some("abn".into()), Some(query)).ne(&ExitCode::SUCCESS) {
@@ -435,6 +455,45 @@ fn curl_get(url: &str) -> Result<(u16, String), String> {
             "-w",
             "\n%{http_code}",
             url,
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let (body, status) = text.rsplit_once('\n').unwrap_or((text.as_ref(), "0"));
+    let status: u16 = status.trim().parse().unwrap_or(0);
+    Ok((status, body.to_owned()))
+}
+
+fn curl_post_exa(query: &str) -> Result<(u16, String), String> {
+    let key = env::var("EXA_API_KEY").map_err(|_| "EXA_API_KEY missing".to_owned())?;
+    if key.trim().is_empty() {
+        return Err("EXA_API_KEY missing".into());
+    }
+    let payload = serde_json::json!({
+        "query": query,
+        "type": "auto",
+        "numResults": 10,
+        "contents": {"highlights": true}
+    });
+    let output = std::process::Command::new("curl")
+        .args([
+            "-sS",
+            "-X",
+            "POST",
+            "https://api.exa.ai/search",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            &format!("x-api-key: {key}"),
+            "--max-time",
+            "30",
+            "-w",
+            "\n%{http_code}",
+            "-d",
+            &payload.to_string(),
         ])
         .output()
         .map_err(|e| e.to_string())?;

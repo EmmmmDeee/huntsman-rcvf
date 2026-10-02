@@ -1,14 +1,9 @@
-# huntsman-recon 0.6.0
+# huntsman-recon 0.7.0
 
-No size cap on operator files. A symlink is still refused. A challenge page is still not a hit.
+`lookup exa QUERY` posts to api.exa.ai when `EXA_API_KEY` is set. A 402 is not a hit. No key is stored in the tree.
 
-```
-huntsman-recon gather QUERY
-huntsman-recon lookup nominatim|datagov|wikidata|abn QUERY
-huntsman-recon run CASE_DIR
-```
+Gather still calls Nominatim, data.gov.au, and Wikidata. Exa is included only when the key is present.
 
-Gather tries every wired public source and prints a 429 instead of skipping it. SeekNow stays unwired: it is a paid breach service, not a missing cap.
 
 
 
