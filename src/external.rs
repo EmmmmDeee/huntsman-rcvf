@@ -86,6 +86,65 @@ pub fn parse_nominatim(body: &str) -> Result<Vec<SourceHit>, Error> {
     Ok(hits)
 }
 
+/// Public ABN view. A recaptcha script on the same page is not a reason to drop the legal name.
+pub fn parse_abn_html(body: &str) -> Result<Vec<SourceHit>, Error> {
+    let Some(name) = between(body, "itemprop=\"legalName\">", "</span>") else {
+        return Err(Error::Invalid("ABN page has no legal name".into()));
+    };
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::Invalid("ABN legal name empty".into()));
+    }
+    let title = between(body, "<title>", "</title>").unwrap_or("");
+    let abn: String = title.chars().filter(|c| c.is_ascii_digit()).collect();
+    if abn.len() != 11 {
+        return Err(Error::Invalid("ABN title has no 11-digit identifier".into()));
+    }
+    let status = between(body, "ABN status:</th>", "</td>")
+        .unwrap_or("")
+        .replace("&nbsp;", " ");
+    let status = status.split('<').next().unwrap_or("").trim().to_owned();
+    Ok(vec![SourceHit {
+        id: abn,
+        label: name.to_owned(),
+        detail: status,
+        lat: None,
+        lon: None,
+        source: "abn".into(),
+    }])
+}
+
+pub fn parse_datagov(body: &str) -> Result<Vec<SourceHit>, Error> {
+    admit_body(200, body)?;
+    let value: Value = serde_json::from_str(body).map_err(|e| Error::Invalid(e.to_string()))?;
+    if value.get("success").and_then(Value::as_bool) != Some(true) {
+        return Err(Error::Invalid("data.gov.au search failed".into()));
+    }
+    let Some(rows) = value.pointer("/result/results").and_then(Value::as_array) else {
+        return Err(Error::Invalid("data.gov.au results missing".into()));
+    };
+    let mut hits = Vec::new();
+    for row in rows {
+        let Some(id) = row.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        hits.push(SourceHit {
+            id: id.to_owned(),
+            label: row.get("title").and_then(Value::as_str).unwrap_or("").to_owned(),
+            detail: row.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+            lat: None,
+            lon: None,
+            source: "data.gov.au".into(),
+        });
+    }
+    Ok(hits)
+}
+
+fn between<'a>(body: &'a str, start: &str, end: &str) -> Option<&'a str> {
+    let rest = body.split_once(start)?.1;
+    Some(rest.split_once(end)?.0)
+}
+
 /// Two public fixes. Returns meters. Does not infer identity.
 #[must_use]
 pub fn separation_m(left: &SourceHit, right: &SourceHit) -> Option<f64> {
@@ -107,5 +166,10 @@ mod tests {
         assert!(meters < 2_000.0, "{meters}");
         assert!(parse_wikidata_search("<html>just a moment cloudflare</html>").is_err());
         assert!(parse_nominatim("").is_err());
+        let abn = parse_abn_html(include_str!("../fixtures/abn-bp.html")).unwrap();
+        assert_eq!(abn[0].label, "B P AUSTRALIA PTY LTD");
+        assert_eq!(abn[0].id, "53004085616");
+        let sets = parse_datagov(include_str!("../fixtures/datagov-brisbane.json")).unwrap();
+        assert_eq!(sets[0].label, "Events — Brisbane parks");
     }
 }

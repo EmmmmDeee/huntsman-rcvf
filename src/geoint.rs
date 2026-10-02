@@ -65,9 +65,6 @@ pub fn colocated(fixes: &[Fix], radius_m: f64, window_secs: i64) -> Vec<CoLocati
 
 pub fn load_fixes(path: &Path) -> Result<Vec<Fix>, Error> {
     let body = fs::read(path).map_err(|e| Error::Store(e.to_string()))?;
-    if body.len() > 1_048_576 {
-        return Err(Error::Store("fixes file exceeds 1 MiB".into()));
-    }
     let fixes: Vec<Fix> = serde_json::from_slice(&body).map_err(|e| Error::Store(e.to_string()))?;
     for fix in &fixes {
         if !(-90.0..=90.0).contains(&fix.lat) || !(-180.0..=180.0).contains(&fix.lon) {

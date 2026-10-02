@@ -28,6 +28,7 @@ fn main() -> ExitCode {
         Some("session") => session_cmd(args.collect()),
         Some("run") => run_cmd(args.next()),
         Some("lookup") => lookup_cmd(args.next(), args.next()),
+        Some("gather") => gather_cmd(args.next()),
         Some("check") | None => check(),
         Some(other) => {
             eprintln!("unknown command: {other}");
@@ -39,7 +40,7 @@ fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: huntsman-recon check | run CASE_DIR | lookup wikidata|nominatim QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
+        "usage: huntsman-recon check | run CASE_DIR | gather QUERY | lookup wikidata|nominatim|abn|datagov QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
     );
 }
 
@@ -320,11 +321,16 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
     };
     let url = match kind.as_str() {
         "wikidata" => format!(
-            "https://www.wikidata.org/w/api.php?action=wbsearchentities&search={}&language=en&format=json&limit=3",
+            "https://www.wikidata.org/w/api.php?action=wbsearchentities&search={}&language=en&format=json&limit=50",
             urlencoding(&query)
         ),
         "nominatim" => format!(
-            "https://nominatim.openstreetmap.org/search?q={}&format=jsonv2&limit=1",
+            "https://nominatim.openstreetmap.org/search?q={}&format=jsonv2&limit=10",
+            urlencoding(&query)
+        ),
+        "abn" => format!("https://abr.business.gov.au/ABN/View?id={}", digits_only(&query)),
+        "datagov" => format!(
+            "https://data.gov.au/data/api/3/action/package_search?q={}&rows=50",
             urlencoding(&query)
         ),
         other => {
@@ -332,16 +338,27 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
             return ExitCode::from(64);
         }
     };
-    let body = match curl_get(&url) {
-        Ok(body) => body,
+    let (status, body) = match curl_get(&url) {
+        Ok(pair) => pair,
         Err(err) => {
             eprintln!("{err}");
             return ExitCode::from(66);
         }
     };
+    if kind != "abn" {
+        if let Err(err) = huntsman_recon::external::admit_body(status, &body) {
+            eprintln!("{err}");
+            return ExitCode::from(65);
+        }
+    } else if !(200..300).contains(&status) {
+        eprintln!("ABN HTTP {status}");
+        return ExitCode::from(65);
+    }
     let hits = match kind.as_str() {
         "wikidata" => huntsman_recon::external::parse_wikidata_search(&body),
         "nominatim" => huntsman_recon::external::parse_nominatim(&body),
+        "abn" => huntsman_recon::external::parse_abn_html(&body),
+        "datagov" => huntsman_recon::external::parse_datagov(&body),
         _ => unreachable!(),
     };
     let hits = match hits {
@@ -368,6 +385,33 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn digits_only(raw: &str) -> String {
+    raw.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
+fn gather_cmd(query: Option<String>) -> ExitCode {
+    let Some(query) = query else {
+        eprintln!("usage: huntsman-recon gather QUERY");
+        return ExitCode::from(64);
+    };
+    let mut failed = 0u8;
+    for kind in ["nominatim", "datagov", "wikidata"] {
+        println!("--- {kind}");
+        match lookup_cmd(Some(kind.into()), Some(query.clone())) {
+            ExitCode::SUCCESS => {}
+            _ => failed += 1,
+        }
+    }
+    if digits_only(&query).len() == 11 {
+        println!("--- abn");
+        if lookup_cmd(Some("abn".into()), Some(query)).ne(&ExitCode::SUCCESS) {
+            failed += 1;
+        }
+    }
+    println!("sources_failed={failed}");
+    ExitCode::SUCCESS
+}
+
 fn urlencoding(raw: &str) -> String {
     let mut out = String::new();
     for byte in raw.bytes() {
@@ -380,14 +424,14 @@ fn urlencoding(raw: &str) -> String {
     out
 }
 
-fn curl_get(url: &str) -> Result<String, String> {
+fn curl_get(url: &str) -> Result<(u16, String), String> {
     let output = std::process::Command::new("curl")
         .args([
             "-sS",
             "-A",
-            "huntsman-recon/0.5.0 (single lookup)",
+            "huntsman-recon/0.6.0 (single lookup)",
             "--max-time",
-            "20",
+            "25",
             "-w",
             "\n%{http_code}",
             url,
@@ -400,8 +444,7 @@ fn curl_get(url: &str) -> Result<String, String> {
     let text = String::from_utf8_lossy(&output.stdout);
     let (body, status) = text.rsplit_once('\n').unwrap_or((text.as_ref(), "0"));
     let status: u16 = status.trim().parse().unwrap_or(0);
-    huntsman_recon::external::admit_body(status, body).map_err(|e| e.to_string())?;
-    Ok(body.to_owned())
+    Ok((status, body.to_owned()))
 }
 
 fn run_cmd(dir: Option<String>) -> ExitCode {

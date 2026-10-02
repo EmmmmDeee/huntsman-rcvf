@@ -1,12 +1,10 @@
-//! Bounded JSON session store. No symlinks. Id must be a safe stem.
+//! JSON session store. No size cap. No symlinks. Id must be a safe stem.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::error::Error;
 use crate::session::{valid_session_id, Session};
-
-const MAX_BYTES: u64 = 1_048_576;
 
 pub struct Store {
     root: PathBuf,
@@ -29,9 +27,6 @@ impl Store {
             return Err(Error::Invalid("refusing symlink session path".into()));
         }
         let body = serde_json::to_vec_pretty(session).map_err(|e| Error::Store(e.to_string()))?;
-        if body.len() as u64 > MAX_BYTES {
-            return Err(Error::Store("session exceeds 1 MiB".into()));
-        }
         fs::write(&path, &body).map_err(|e| Error::Store(e.to_string()))?;
         fs::write(self.root.join("current.txt"), session.id.as_bytes())
             .map_err(|e| Error::Store(e.to_string()))?;
@@ -51,10 +46,6 @@ impl Store {
 }
 
 fn read_bounded(path: &Path) -> Result<Session, Error> {
-    let meta = fs::metadata(path).map_err(|e| Error::Store(e.to_string()))?;
-    if meta.len() > MAX_BYTES {
-        return Err(Error::Store("session exceeds 1 MiB".into()));
-    }
     let body = fs::read(path).map_err(|e| Error::Store(e.to_string()))?;
     serde_json::from_slice(&body).map_err(|e| Error::Store(e.to_string()))
 }

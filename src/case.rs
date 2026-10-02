@@ -273,9 +273,6 @@ fn optional_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Vec<T>, 
         return Ok(Vec::new());
     }
     let body = fs::read(path).map_err(|e| Error::Store(e.to_string()))?;
-    if body.len() > 1_048_576 {
-        return Err(Error::Store(format!("{} exceeds 1 MiB", path.display())));
-    }
     serde_json::from_slice(&body).map_err(|e| Error::Store(e.to_string()))
 }
 

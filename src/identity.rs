@@ -159,9 +159,6 @@ fn shared_phone(a: &PersonRecord, b: &PersonRecord) -> bool {
 
 pub fn load_people(path: &std::path::Path) -> Result<Vec<PersonRecord>, crate::error::Error> {
     let body = std::fs::read(path).map_err(|e| crate::error::Error::Store(e.to_string()))?;
-    if body.len() > 1_048_576 {
-        return Err(crate::error::Error::Store("people file exceeds 1 MiB".into()));
-    }
     serde_json::from_slice(&body).map_err(|e| crate::error::Error::Store(e.to_string()))
 }
 

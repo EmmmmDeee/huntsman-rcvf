@@ -112,8 +112,6 @@ pub fn admitted<'a>(entries: &'a [LedgerEntry]) -> Vec<&'a LedgerEntry> {
     entries.iter().filter(|e| e.claim.admits_interop()).collect()
 }
 
-const MAX_LEDGER_BYTES: u64 = 1_048_576;
-
 pub fn save_chain(path: &Path, entries: &[LedgerEntry]) -> Result<(), Error> {
     if !chain_intact(entries) {
         return Err(Error::Invalid("refusing to write a broken chain".into()));
@@ -124,17 +122,10 @@ pub fn save_chain(path: &Path, entries: &[LedgerEntry]) -> Result<(), Error> {
         }
     }
     let body = serde_json::to_vec_pretty(entries).map_err(|e| Error::Store(e.to_string()))?;
-    if body.len() as u64 > MAX_LEDGER_BYTES {
-        return Err(Error::Store("ledger exceeds 1 MiB".into()));
-    }
     fs::write(path, body).map_err(|e| Error::Store(e.to_string()))
 }
 
 pub fn load_chain(path: &Path) -> Result<Vec<LedgerEntry>, Error> {
-    let meta = fs::metadata(path).map_err(|e| Error::Store(e.to_string()))?;
-    if meta.len() > MAX_LEDGER_BYTES {
-        return Err(Error::Store("ledger exceeds 1 MiB".into()));
-    }
     let body = fs::read(path).map_err(|e| Error::Store(e.to_string()))?;
     let entries: Vec<LedgerEntry> = serde_json::from_slice(&body).map_err(|e| Error::Store(e.to_string()))?;
     if !chain_intact(&entries) {

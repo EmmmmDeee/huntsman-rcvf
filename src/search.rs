@@ -58,10 +58,8 @@ pub fn search(docs: &[Document], query: &str) -> Vec<Hit> {
     hits
 }
 
-const MAX_FILE: u64 = 262_144;
-const MAX_DOCS: usize = 256;
-
 /// Regular files only. Symlinks are skipped. Extensions: txt, md, json.
+/// No document cap. A symlink is still not a document.
 pub fn load_corpus(dir: &Path) -> Result<Vec<Document>, Error> {
     let entries = fs::read_dir(dir).map_err(|e| Error::Store(e.to_string()))?;
     let mut docs = Vec::new();
@@ -77,18 +75,12 @@ pub fn load_corpus(dir: &Path) -> Result<Vec<Document>, Error> {
         if !matches!(ext, "txt" | "md" | "json") {
             continue;
         }
-        if meta.len() > MAX_FILE {
-            return Err(Error::Store(format!("{name} exceeds 256 KiB")));
-        }
         let body = fs::read_to_string(&path).map_err(|e| Error::Store(e.to_string()))?;
         docs.push(Document {
             id: name,
             body,
             source: path.display().to_string(),
         });
-        if docs.len() > MAX_DOCS {
-            return Err(Error::Store("corpus exceeds 256 documents".into()));
-        }
     }
     docs.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(docs)

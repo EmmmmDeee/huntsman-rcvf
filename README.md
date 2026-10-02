@@ -1,14 +1,14 @@
-# huntsman-recon 0.5.0
+# huntsman-recon 0.6.0
 
-Offline case core, plus two public lookups that earned a live 200 from this host.
+No size cap on operator files. A symlink is still refused. A challenge page is still not a hit.
 
 ```
+huntsman-recon gather QUERY
+huntsman-recon lookup nominatim|datagov|wikidata|abn QUERY
 huntsman-recon run CASE_DIR
-huntsman-recon lookup wikidata QUERY
-huntsman-recon lookup nominatim QUERY
-huntsman-recon check
 ```
 
-Wikidata and Nominatim are single curl calls. A challenge page is not a hit. SeekNow and public SearXNG are not sources. Navigator techniques stay 0.
+Gather tries every wired public source and prints a 429 instead of skipping it. SeekNow stays unwired: it is a paid breach service, not a missing cap.
+
 
 
