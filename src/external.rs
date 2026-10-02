@@ -145,6 +145,30 @@ fn between<'a>(body: &'a str, start: &str, end: &str) -> Option<&'a str> {
     Some(rest.split_once(end)?.0)
 }
 
+/// Federal Register of Legislation titles.
+pub fn parse_legislation(body: &str) -> Result<Vec<SourceHit>, Error> {
+    admit_body(200, body)?;
+    let value: Value = serde_json::from_str(body).map_err(|e| Error::Invalid(e.to_string()))?;
+    let Some(rows) = value.get("value").and_then(Value::as_array) else {
+        return Err(Error::Invalid("legislation titles missing".into()));
+    };
+    let mut hits = Vec::new();
+    for row in rows {
+        let Some(id) = row.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        hits.push(SourceHit {
+            id: id.to_owned(),
+            label: row.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+            detail: row.get("collection").and_then(Value::as_str).unwrap_or("").to_owned(),
+            lat: None,
+            lon: None,
+            source: "legislation.gov.au".into(),
+        });
+    }
+    Ok(hits)
+}
+
 /// Exa search JSON. A 402 or an error tag is not a hit.
 pub fn parse_exa(status: u16, body: &str) -> Result<Vec<SourceHit>, Error> {
     if status == 402 || body.contains("X402_PAYMENT_REQUIRED") {
@@ -212,5 +236,8 @@ mod tests {
         let parsed = parse_exa(200, schema).unwrap();
         assert_eq!(parsed[0].source, "exa");
         assert_eq!(parsed[0].label, "Schema example");
+        let laws = parse_legislation(include_str!("../fixtures/legislation-brisbane.json")).unwrap();
+        assert!(laws[0].label.to_ascii_lowercase().contains("brisbane"));
+        assert_eq!(laws[0].id, "C2025G00511");
     }
 }

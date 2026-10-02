@@ -333,6 +333,10 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
             "https://data.gov.au/data/api/3/action/package_search?q={}&rows=50",
             urlencoding(&query)
         ),
+        "legislation" => format!(
+            "https://api.prod.legislation.gov.au/v1/titles?$filter=contains(name,'{}')&$top=10&$select=id,name,makingDate,collection,isInForce",
+            query.replace('\'', "")
+        ),
         "exa" => "https://api.exa.ai/search".into(),
         other => {
             eprintln!("unknown source: {other}");
@@ -370,6 +374,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
         "nominatim" => huntsman_recon::external::parse_nominatim(&body),
         "abn" => huntsman_recon::external::parse_abn_html(&body),
         "datagov" => huntsman_recon::external::parse_datagov(&body),
+        "legislation" => huntsman_recon::external::parse_legislation(&body),
         "exa" => huntsman_recon::external::parse_exa(status, &body),
         _ => unreachable!(),
     };
@@ -407,7 +412,7 @@ fn gather_cmd(query: Option<String>) -> ExitCode {
         return ExitCode::from(64);
     };
     let mut failed = 0u8;
-    for kind in ["nominatim", "datagov", "wikidata"] {
+    for kind in ["nominatim", "datagov", "legislation", "wikidata"] {
         println!("--- {kind}");
         match lookup_cmd(Some(kind.into()), Some(query.clone())) {
             ExitCode::SUCCESS => {}
