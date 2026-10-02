@@ -2,6 +2,9 @@
 //! A blocked or throttled fetch is not a hit. No paid source. No live client.
 
 use crate::classify::{classify_response, FetchOutcome};
+use crate::error::Error;
+use std::fs;
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
@@ -55,6 +58,42 @@ pub fn search(docs: &[Document], query: &str) -> Vec<Hit> {
     hits
 }
 
+const MAX_FILE: u64 = 262_144;
+const MAX_DOCS: usize = 256;
+
+/// Regular files only. Symlinks are skipped. Extensions: txt, md, json.
+pub fn load_corpus(dir: &Path) -> Result<Vec<Document>, Error> {
+    let entries = fs::read_dir(dir).map_err(|e| Error::Store(e.to_string()))?;
+    let mut docs = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| Error::Store(e.to_string()))?;
+        let path = entry.path();
+        let meta = fs::symlink_metadata(&path).map_err(|e| Error::Store(e.to_string()))?;
+        if meta.file_type().is_symlink() || !meta.file_type().is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let ext = name.rsplit('.').next().unwrap_or("");
+        if !matches!(ext, "txt" | "md" | "json") {
+            continue;
+        }
+        if meta.len() > MAX_FILE {
+            return Err(Error::Store(format!("{name} exceeds 256 KiB")));
+        }
+        let body = fs::read_to_string(&path).map_err(|e| Error::Store(e.to_string()))?;
+        docs.push(Document {
+            id: name,
+            body,
+            source: path.display().to_string(),
+        });
+        if docs.len() > MAX_DOCS {
+            return Err(Error::Store("corpus exceeds 256 documents".into()));
+        }
+    }
+    docs.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(docs)
+}
+
 /// A fetch becomes hits only when the classifier says the body is the payload.
 #[must_use]
 pub fn search_response(status: u16, body: &str, query: &str, source: &str) -> Vec<Hit> {
@@ -89,5 +128,21 @@ mod tests {
         assert!(search_response(429, "brisbane port", "brisbane", "remote").is_empty());
         let parsed = search_response(200, "brisbane port open", "brisbane port", "remote");
         assert_eq!(parsed.len(), 1);
+    }
+
+    #[test]
+    fn corpus_requires_every_term_and_skips_symlink() {
+        let root = std::env::temp_dir().join(format!("huntsman-corpus-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("port.txt"), "Brisbane port radar").unwrap();
+        fs::write(root.join("note.md"), "Sydney harbour note").unwrap();
+        fs::write(root.join("skip.bin"), "brisbane port").unwrap();
+        let _ = std::os::unix::fs::symlink("/etc/passwd", root.join("secret.txt"));
+        let docs = load_corpus(&root).unwrap();
+        assert_eq!(docs.len(), 2);
+        assert_eq!(search(&docs, "brisbane port").len(), 1);
+        assert!(search(&docs, "brisbane harbour").is_empty());
+        let _ = fs::remove_dir_all(&root);
     }
 }

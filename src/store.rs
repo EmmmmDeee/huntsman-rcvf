@@ -25,6 +25,9 @@ impl Store {
         let dir = self.root.join("sessions");
         fs::create_dir_all(&dir).map_err(|e| Error::Store(e.to_string()))?;
         let path = dir.join(format!("{}.json", session.id));
+        if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+            return Err(Error::Invalid("refusing symlink session path".into()));
+        }
         let body = serde_json::to_vec_pretty(session).map_err(|e| Error::Store(e.to_string()))?;
         if body.len() as u64 > MAX_BYTES {
             return Err(Error::Store("session exceeds 1 MiB".into()));
@@ -40,6 +43,9 @@ impl Store {
             return Err(Error::Invalid(format!("unsafe session id: {id}")));
         }
         let path = self.root.join("sessions").join(format!("{id}.json"));
+        if path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+            return Err(Error::Invalid("refusing symlink session path".into()));
+        }
         read_bounded(&path)
     }
 }

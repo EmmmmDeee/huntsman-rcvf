@@ -1,6 +1,7 @@
-//! Offline reconstructed huntsman.
-//! Recorder contract, identity, GEOINT, hashed ledger, STIX and Navigator gates.
+//! Offline reconstructed huntsman 0.3.0.
+//! Operator path and library path are the same functions.
 //! No network client. Challenge pages are not results.
+//! A technique id enters Navigator only from an in-crate binding. The table is empty.
 
 #![deny(unsafe_code)]
 

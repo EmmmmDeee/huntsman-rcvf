@@ -1,1 +1,4 @@
 target/
+var/
+keys.missing.env
+*.env

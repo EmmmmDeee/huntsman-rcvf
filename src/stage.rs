@@ -84,3 +84,17 @@ impl Status {
         }
     }
 }
+
+impl std::str::FromStr for Status {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "verified" => Ok(Self::Verified),
+            "partial" => Ok(Self::Partial),
+            "unverified" => Ok(Self::Unverified),
+            "not_applicable" => Ok(Self::NotApplicable),
+            other => Err(Error::Invalid(format!("unknown status: {other}"))),
+        }
+    }
+}

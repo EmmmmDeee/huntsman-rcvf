@@ -1,13 +1,17 @@
-# huntsman
+# huntsman-recon 0.3.0
 
-Only current version of the project. Previous trees remain in git history.
+Offline RCVF core. No network client. No paid source.
 
-Local search over operator-supplied documents. A challenge page is not a hit. No paid source. No network client. The ledger is a hash chain. A full terminate must name the tip. A verified claim is not an ATT&CK score.
+`cargo test` is the gate. `huntsman-recon check` fails closed if a self-labeled technique enters Navigator. The binding table is empty. Haversine is not T1591. A challenge page is not a hit.
 
 ```
-cargo test
-cargo run -- search "brisbane port"
-cargo run -- check
+huntsman-recon check
+huntsman-recon search DIR QUERY
+huntsman-recon resolve PEOPLE.json
+huntsman-recon coloc FIXES.json RADIUS_M WINDOW_SECS
+huntsman-recon geo LAT,LON LAT,LON
+huntsman-recon classify STATUS BODY
+huntsman-recon session new TITLE
 ```
 
-See `docs/RECONSTRUCTION_2026-10-02.md`.
+Session store: `HUNTSMAN_VAR` or `./var`. Identity links on canonical email, handle, or phone. A shared name does not merge. SeekNow and public SearXNG are not sources.

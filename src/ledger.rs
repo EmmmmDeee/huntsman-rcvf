@@ -50,6 +50,11 @@ impl Claim {
 const BINDINGS: &[(&str, &str)] = &[];
 
 #[must_use]
+pub fn binding_count() -> usize {
+    BINDINGS.len()
+}
+
+#[must_use]
 pub fn method_implements(component: &str, technique: &str) -> bool {
     BINDINGS.iter().any(|(path, id)| *path == component && *id == technique)
 }

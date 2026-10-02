@@ -83,3 +83,19 @@ fn navigator_and_stix_drop_challenge_and_catalog() {
     assert!(ids.is_empty(), "self-labeled T1592 is not an implemented technique");
     assert!(bundle(&[admitted, catalog])["objects"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn store_refuses_symlink_and_phone_file_roundtrip() {
+    let root = std::env::temp_dir().join(format!("huntsman-recon-link-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let store = Store::new(&root);
+    let session = Session::new("link");
+    store.save(&session).unwrap();
+    let sessions = root.join("sessions");
+    let link = sessions.join(format!("{}.json", session.id));
+    fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink("/etc/passwd", &link).unwrap();
+    assert!(store.load(&session.id).is_err());
+    let _ = fs::remove_dir_all(&root);
+    let _ = session;
+}

@@ -1,10 +1,13 @@
 //! GEOINT on operator-supplied fixes. WGS84 sphere. No live geolocation.
 
 use crate::error::Error;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::Path;
 
 const EARTH_M: f64 = 6_371_000.0;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Fix {
     pub id: String,
     pub lat: f64,
@@ -60,6 +63,20 @@ pub fn colocated(fixes: &[Fix], radius_m: f64, window_secs: i64) -> Vec<CoLocati
     out
 }
 
+pub fn load_fixes(path: &Path) -> Result<Vec<Fix>, Error> {
+    let body = fs::read(path).map_err(|e| Error::Store(e.to_string()))?;
+    if body.len() > 1_048_576 {
+        return Err(Error::Store("fixes file exceeds 1 MiB".into()));
+    }
+    let fixes: Vec<Fix> = serde_json::from_slice(&body).map_err(|e| Error::Store(e.to_string()))?;
+    for fix in &fixes {
+        if !(-90.0..=90.0).contains(&fix.lat) || !(-180.0..=180.0).contains(&fix.lon) {
+            return Err(Error::Invalid(format!("coordinate out of range: {}", fix.id)));
+        }
+    }
+    Ok(fixes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +107,11 @@ mod tests {
     #[test]
     fn rejects_out_of_range() {
         assert!(parse_latlon("91,0").is_err());
+    }
+
+    #[test]
+    fn antimeridian_is_the_short_arc() {
+        let m = haversine_m(0.0, 179.0, 0.0, -179.0);
+        assert!(m > 200_000.0 && m < 250_000.0, "{m}");
     }
 }
