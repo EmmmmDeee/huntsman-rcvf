@@ -99,3 +99,35 @@ fn store_refuses_symlink_and_phone_file_roundtrip() {
     let _ = fs::remove_dir_all(&root);
     let _ = session;
 }
+
+#[test]
+fn case_dir_roundtrip_keeps_navigator_empty() {
+    let root = std::env::temp_dir().join(format!("huntsman-case-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("corpus")).unwrap();
+    fs::write(
+        root.join("people.json"),
+        r#"[{"id":"a","name":"Same","phones":["+61 412 345 678"]},{"id":"b","name":"Same","emails":["b@ex.com"],"phones":["61412345678"]}]"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("fixes.json"),
+        r#"[{"id":"a","lat":-27.47,"lon":153.02,"at_unix":1000},{"id":"b","lat":-27.47,"lon":153.021,"at_unix":1100}]"#,
+    )
+    .unwrap();
+    fs::write(root.join("corpus/port.txt"), "Brisbane port radar").unwrap();
+    fs::write(
+        root.join("case.json"),
+        r#"{"title":"accept","query":"brisbane port","radius_m":2000,"window_secs":3600}"#,
+    )
+    .unwrap();
+    let (spec, people, fixes, docs) = huntsman_recon::case::load_dir(&root).unwrap();
+    let output = huntsman_recon::case::execute(&spec, &people, &fixes, &docs).unwrap();
+    assert_eq!(output.report.clusters, 1);
+    assert_eq!(output.report.hits, 1);
+    assert_eq!(output.report.techniques, 0);
+    huntsman_recon::case::write_output(&root.join("out"), &output).unwrap();
+    let nav = fs::read_to_string(root.join("out/navigator.json")).unwrap();
+    assert!(nav.contains("\"techniques\": []"));
+    let _ = fs::remove_dir_all(&root);
+}

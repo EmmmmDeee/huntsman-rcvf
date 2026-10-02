@@ -26,6 +26,7 @@ fn main() -> ExitCode {
         Some("coloc") => coloc_cmd(args.next(), args.next(), args.next()),
         Some("classify") => classify(args.next(), args.next()),
         Some("session") => session_cmd(args.collect()),
+        Some("run") => run_cmd(args.next()),
         Some("check") | None => check(),
         Some(other) => {
             eprintln!("unknown command: {other}");
@@ -37,7 +38,7 @@ fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: huntsman-recon check | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
+        "usage: huntsman-recon check | run CASE_DIR | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
     );
 }
 
@@ -308,6 +309,44 @@ fn mutate(store: &Store, id: &str, op: impl FnOnce(&mut Session) -> Result<(), h
         return ExitCode::from(66);
     }
     println!("{}", session.id);
+    ExitCode::SUCCESS
+}
+
+fn run_cmd(dir: Option<String>) -> ExitCode {
+    let Some(dir) = dir else {
+        eprintln!("usage: huntsman-recon run CASE_DIR");
+        return ExitCode::from(64);
+    };
+    let (spec, people, fixes, docs) = match huntsman_recon::case::load_dir(Path::new(&dir)) {
+        Ok(loaded) => loaded,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::from(66);
+        }
+    };
+    let output = match huntsman_recon::case::execute(&spec, &people, &fixes, &docs) {
+        Ok(output) => output,
+        Err(err) => {
+            eprintln!("{err}");
+            return ExitCode::from(65);
+        }
+    };
+    let out = Path::new(&dir).join("out");
+    if huntsman_recon::case::write_output(&out, &output).is_err() {
+        return ExitCode::from(66);
+    }
+    let store = Store::new(var_root());
+    if store.save(&output.session).is_err() {
+        return ExitCode::from(66);
+    }
+    println!("clusters={}", output.report.clusters);
+    println!("links={}", output.report.links);
+    println!("pairs={}", output.report.pairs);
+    println!("hits={}", output.report.hits);
+    println!("techniques={}", output.report.techniques);
+    println!("bindings={}", output.report.bindings);
+    println!("tip={}", output.report.tip);
+    println!("residual={}", output.report.residual);
     ExitCode::SUCCESS
 }
 

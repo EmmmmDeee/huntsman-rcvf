@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub struct PersonRecord {
     pub id: String,
     pub name: String,
+    #[serde(default)]
     pub emails: Vec<String>,
     #[serde(default)]
     pub handles: Vec<String>,
