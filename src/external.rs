@@ -169,6 +169,37 @@ pub fn parse_legislation(body: &str) -> Result<Vec<SourceHit>, Error> {
     Ok(hits)
 }
 
+/// GLEIF LEI records. Legal name may be a string or an object with `name`.
+pub fn parse_gleif(body: &str) -> Result<Vec<SourceHit>, Error> {
+    admit_body(200, body)?;
+    let value: Value = serde_json::from_str(body).map_err(|e| Error::Invalid(e.to_string()))?;
+    let Some(rows) = value.get("data").and_then(Value::as_array) else {
+        return Err(Error::Invalid("gleif data missing".into()));
+    };
+    let mut hits = Vec::new();
+    for row in rows {
+        let Some(id) = row.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        let legal = row.pointer("/attributes/entity/legalName");
+        let label = match legal {
+            Some(Value::String(s)) => s.clone(),
+            Some(Value::Object(map)) => map.get("name").and_then(Value::as_str).unwrap_or("").to_owned(),
+            _ => String::new(),
+        };
+        let status = row.pointer("/attributes/entity/status").and_then(Value::as_str).unwrap_or("");
+        hits.push(SourceHit {
+            id: id.to_owned(),
+            label,
+            detail: status.to_owned(),
+            lat: None,
+            lon: None,
+            source: "gleif".into(),
+        });
+    }
+    Ok(hits)
+}
+
 /// Exa search JSON. A 402 or an error tag is not a hit.
 pub fn parse_exa(status: u16, body: &str) -> Result<Vec<SourceHit>, Error> {
     if status == 402 || body.contains("X402_PAYMENT_REQUIRED") {
@@ -239,5 +270,8 @@ mod tests {
         let laws = parse_legislation(include_str!("../fixtures/legislation-brisbane.json")).unwrap();
         assert!(laws[0].label.to_ascii_lowercase().contains("brisbane"));
         assert_eq!(laws[0].id, "C2025G00511");
+        let lei = parse_gleif(include_str!("../fixtures/gleif-brisbane.json")).unwrap();
+        assert_eq!(lei[0].id, "969500E98BGOX5KEG994");
+        assert_eq!(lei[0].label, "BRISBANE MEDIA");
     }
 }
