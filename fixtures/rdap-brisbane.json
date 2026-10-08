@@ -1,0 +1,16 @@
+{
+  "objectClassName": "domain",
+  "ldhName": "brisbane.qld.gov.au",
+  "status": ["server renew prohibited"],
+  "nameservers": [
+    {"ldhName": "ns-1010.awsdns-62.net"},
+    {"ldhName": "ns-1438.awsdns-51.org"}
+  ],
+  "entities": [
+    {
+      "roles": ["registrar"],
+      "handle": "802325",
+      "vcardArray": ["vcard", [["fn", {}, "text", "Department of Finance - QLD"]]]
+    }
+  ]
+}
