@@ -40,7 +40,7 @@ fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: huntsman-recon check | run CASE_DIR | gather QUERY | lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|exa QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
+        "usage: huntsman-recon check | run CASE_DIR | gather QUERY | lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|exa|seeknow QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
     );
 }
 
@@ -316,7 +316,7 @@ fn mutate(store: &Store, id: &str, op: impl FnOnce(&mut Session) -> Result<(), h
 
 fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
     let (Some(kind), Some(query)) = (kind, query) else {
-        eprintln!("usage: huntsman-recon lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|exa QUERY");
+        eprintln!("usage: huntsman-recon lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|exa|seeknow QUERY");
         return ExitCode::from(64);
     };
     let url = match kind.as_str() {
@@ -347,6 +347,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
             urlencoding(&domain_only(&query))
         ),
         "exa" => "https://api.exa.ai/search".into(),
+        "seeknow" => "https://see-know.ru/api/v1/search".into(),
         other => {
             eprintln!("unknown source: {other}");
             return ExitCode::from(64);
@@ -354,6 +355,14 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
     };
     let (status, body) = if kind == "exa" {
         match curl_post_exa(&query) {
+            Ok(pair) => pair,
+            Err(err) => {
+                eprintln!("{err}");
+                return ExitCode::from(66);
+            }
+        }
+    } else if kind == "seeknow" {
+        match curl_post_seeknow(&query) {
             Ok(pair) => pair,
             Err(err) => {
                 eprintln!("{err}");
@@ -369,7 +378,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
             }
         }
     };
-    if kind != "abn" && kind != "exa" {
+    if kind != "abn" && kind != "exa" && kind != "seeknow" {
         if let Err(err) = huntsman_recon::external::admit_body(status, &body) {
             eprintln!("{err}");
             return ExitCode::from(65);
@@ -388,6 +397,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
         "rdap" => huntsman_recon::external::parse_rdap(&body),
         "crtsh" => huntsman_recon::external::parse_crtsh(&body),
         "exa" => huntsman_recon::external::parse_exa(status, &body),
+        "seeknow" => huntsman_recon::external::parse_seeknow(status, &body),
         _ => unreachable!(),
     };
     let hits = match hits {
@@ -444,7 +454,14 @@ fn gather_cmd(query: Option<String>) -> ExitCode {
             _ => failed += 1,
         }
     }
-    println!("--- exa");
+    println!("--- seeknow");
+    if env::var_os("SEEKNOW_API_KEY").is_none_or(|v| v.is_empty()) {
+        println!("source=seeknow");
+        println!("status=missing_key");
+        failed += 1;
+    } else if lookup_cmd(Some("seeknow".into()), Some(query.clone())).ne(&ExitCode::SUCCESS) {
+        failed += 1;
+    }
     if env::var_os("EXA_API_KEY").is_none_or(|v| v.is_empty()) {
         println!("source=exa");
         println!("status=missing_key");
@@ -496,6 +513,44 @@ fn curl_get(url: &str) -> Result<(u16, String), String> {
             "-w",
             "\n%{http_code}",
             url,
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let (body, status) = text.rsplit_once('\n').unwrap_or((text.as_ref(), "0"));
+    let status: u16 = status.trim().parse().unwrap_or(0);
+    Ok((status, body.to_owned()))
+}
+
+fn curl_post_seeknow(query: &str) -> Result<(u16, String), String> {
+    let key = env::var("SEEKNOW_API_KEY").map_err(|_| "SEEKNOW_API_KEY missing".to_owned())?;
+    if key.trim().is_empty() {
+        return Err("SEEKNOW_API_KEY missing".into());
+    }
+    let payload = serde_json::json!({
+        "type": "auto",
+        "query": query,
+        "mode": "fast"
+    });
+    let output = std::process::Command::new("curl")
+        .args([
+            "-sS",
+            "-X",
+            "POST",
+            "https://see-know.ru/api/v1/search",
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            &format!("X-API-Key: {key}"),
+            "--max-time",
+            "30",
+            "-w",
+            "\n%{http_code}",
+            "-d",
+            &payload.to_string(),
         ])
         .output()
         .map_err(|e| e.to_string())?;

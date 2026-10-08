@@ -349,6 +349,49 @@ pub fn parse_exa(status: u16, body: &str) -> Result<Vec<SourceHit>, Error> {
     Ok(hits)
 }
 
+/// SeekNow search JSON. A missing key or an error object is not a hit.
+pub fn parse_seeknow(status: u16, body: &str) -> Result<Vec<SourceHit>, Error> {
+    if status == 401 || status == 402 || status == 403 {
+        return Err(Error::Invalid("seeknow key rejected".into()));
+    }
+    admit_body(status, body)?;
+    let value: Value = serde_json::from_str(body).map_err(|e| Error::Invalid(e.to_string()))?;
+    if value.get("error").is_some() {
+        return Err(Error::Invalid("seeknow error".into()));
+    }
+    let Some(rows) = value.get("results").and_then(Value::as_array) else {
+        return Err(Error::Invalid("seeknow results missing".into()));
+    };
+    let mut hits = Vec::new();
+    for row in rows {
+        let id = row
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| row.get("source").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or_default();
+        if id.is_empty() {
+            continue;
+        }
+        let label = row
+            .get("type")
+            .and_then(Value::as_str)
+            .or_else(|| row.get("source").and_then(Value::as_str))
+            .unwrap_or("")
+            .to_owned();
+        let source = row.get("source").and_then(Value::as_str).unwrap_or("");
+        hits.push(SourceHit {
+            id,
+            label,
+            detail: source.to_owned(),
+            lat: None,
+            lon: None,
+            source: "seeknow".into(),
+        });
+    }
+    Ok(hits)
+}
+
 /// Two public fixes. Returns meters. Does not infer identity.
 #[must_use]
 pub fn separation_m(left: &SourceHit, right: &SourceHit) -> Option<f64> {
@@ -396,5 +439,11 @@ mod tests {
         assert_eq!(certs[0].label, "brisbane.qld.gov.au");
         assert!(certs[0].detail.contains("www.brisbane.qld.gov.au"));
         assert!(parse_crtsh("<html>just a moment</html>").is_err());
+        let denied = r#"{"error":"invalid_api_key","message":"Missing API key"}"#;
+        assert!(parse_seeknow(401, denied).is_err());
+        let schema = r#"{"results":[{"id":"schema","type":"domain","source":"example"}]}"#;
+        let parsed = parse_seeknow(200, schema).unwrap();
+        assert_eq!(parsed[0].source, "seeknow");
+        assert_eq!(parsed[0].id, "schema");
     }
 }
