@@ -40,7 +40,7 @@ fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: huntsman-recon check | run CASE_DIR | gather QUERY | lookup wikidata|nominatim|abn|datagov QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
+        "usage: huntsman-recon check | run CASE_DIR | gather QUERY | lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|exa QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
     );
 }
 
@@ -316,7 +316,7 @@ fn mutate(store: &Store, id: &str, op: impl FnOnce(&mut Session) -> Result<(), h
 
 fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
     let (Some(kind), Some(query)) = (kind, query) else {
-        eprintln!("usage: huntsman-recon lookup wikidata|nominatim QUERY");
+        eprintln!("usage: huntsman-recon lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|exa QUERY");
         return ExitCode::from(64);
     };
     let url = match kind.as_str() {
@@ -341,6 +341,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
             "https://api.gleif.org/api/v1/lei-records?filter%5Bentity.legalName%5D={}&page%5Bsize%5D=5",
             urlencoding(&query)
         ),
+        "rdap" => format!("https://rdap.org/domain/{}", domain_only(&query)),
         "exa" => "https://api.exa.ai/search".into(),
         other => {
             eprintln!("unknown source: {other}");
@@ -380,6 +381,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
         "datagov" => huntsman_recon::external::parse_datagov(&body),
         "legislation" => huntsman_recon::external::parse_legislation(&body),
         "gleif" => huntsman_recon::external::parse_gleif(&body),
+        "rdap" => huntsman_recon::external::parse_rdap(&body),
         "exa" => huntsman_recon::external::parse_exa(status, &body),
         _ => unreachable!(),
     };
@@ -411,6 +413,19 @@ fn digits_only(raw: &str) -> String {
     raw.chars().filter(|c| c.is_ascii_digit()).collect()
 }
 
+fn domain_only(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('.');
+    let without_scheme = trimmed
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(trimmed);
+    without_scheme
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or(without_scheme)
+        .to_ascii_lowercase()
+}
+
 fn gather_cmd(query: Option<String>) -> ExitCode {
     let Some(query) = query else {
         eprintln!("usage: huntsman-recon gather QUERY");
@@ -434,7 +449,13 @@ fn gather_cmd(query: Option<String>) -> ExitCode {
     }
     if digits_only(&query).len() == 11 {
         println!("--- abn");
-        if lookup_cmd(Some("abn".into()), Some(query)).ne(&ExitCode::SUCCESS) {
+        if lookup_cmd(Some("abn".into()), Some(query.clone())).ne(&ExitCode::SUCCESS) {
+            failed += 1;
+        }
+    }
+    if query.contains('.') && !query.contains(' ') {
+        println!("--- rdap");
+        if lookup_cmd(Some("rdap".into()), Some(query)).ne(&ExitCode::SUCCESS) {
             failed += 1;
         }
     }
@@ -458,8 +479,9 @@ fn curl_get(url: &str) -> Result<(u16, String), String> {
     let output = std::process::Command::new("curl")
         .args([
             "-sS",
+            "-L",
             "-A",
-            "huntsman-recon/0.6.0 (single lookup)",
+            "huntsman-recon/0.10.0",
             "--max-time",
             "25",
             "-w",

@@ -200,6 +200,84 @@ pub fn parse_gleif(body: &str) -> Result<Vec<SourceHit>, Error> {
     Ok(hits)
 }
 
+/// RDAP domain object. A notice-only or non-domain body is not a hit.
+pub fn parse_rdap(body: &str) -> Result<Vec<SourceHit>, Error> {
+    admit_body(200, body)?;
+    let value: Value = serde_json::from_str(body).map_err(|e| Error::Invalid(e.to_string()))?;
+    if value.get("errorCode").is_some() {
+        return Err(Error::Invalid("rdap error".into()));
+    }
+    let class = value.get("objectClassName").and_then(Value::as_str).unwrap_or("");
+    if class != "domain" {
+        return Err(Error::Invalid("rdap domain missing".into()));
+    }
+    let Some(name) = value.get("ldhName").and_then(Value::as_str) else {
+        return Err(Error::Invalid("rdap name missing".into()));
+    };
+    let registrar = rdap_registrar(&value);
+    let status = value
+        .get("status")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    let ns = value
+        .get("nameservers")
+        .and_then(Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .filter_map(|row| row.get("ldhName").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .unwrap_or_default();
+    Ok(vec![SourceHit {
+        id: name.to_owned(),
+        label: registrar,
+        detail: format!("{status} ns={ns}"),
+        lat: None,
+        lon: None,
+        source: "rdap".into(),
+    }])
+}
+
+fn rdap_registrar(value: &Value) -> String {
+    let Some(entities) = value.get("entities").and_then(Value::as_array) else {
+        return String::new();
+    };
+    for entity in entities {
+        let roles = entity.get("roles").and_then(Value::as_array);
+        let is_registrar = roles.is_some_and(|rows| {
+            rows.iter().any(|role| role.as_str() == Some("registrar"))
+        });
+        if !is_registrar {
+            continue;
+        }
+        if let Some(name) = vcard_fn(entity) {
+            return name;
+        }
+        if let Some(handle) = entity.get("handle").and_then(Value::as_str) {
+            return handle.to_owned();
+        }
+    }
+    String::new()
+}
+
+fn vcard_fn(entity: &Value) -> Option<String> {
+    let rows = entity.get("vcardArray")?.as_array()?.get(1)?.as_array()?;
+    for row in rows {
+        let cells = row.as_array()?;
+        if cells.first().and_then(Value::as_str) == Some("fn") {
+            return cells.get(3).and_then(Value::as_str).map(str::to_owned);
+        }
+    }
+    None
+}
+
 /// Exa search JSON. A 402 or an error tag is not a hit.
 pub fn parse_exa(status: u16, body: &str) -> Result<Vec<SourceHit>, Error> {
     if status == 402 || body.contains("X402_PAYMENT_REQUIRED") {
@@ -273,5 +351,10 @@ mod tests {
         let lei = parse_gleif(include_str!("../fixtures/gleif-brisbane.json")).unwrap();
         assert_eq!(lei[0].id, "969500E98BGOX5KEG994");
         assert_eq!(lei[0].label, "BRISBANE MEDIA");
+        let rdap = parse_rdap(include_str!("../fixtures/rdap-brisbane.json")).unwrap();
+        assert_eq!(rdap[0].id, "brisbane.qld.gov.au");
+        assert_eq!(rdap[0].label, "Department of Finance - QLD");
+        assert!(rdap[0].detail.contains("ns-1010.awsdns-62.net"));
+        assert!(parse_rdap(r#"{"errorCode":404,"title":"Not Found"}"#).is_err());
     }
 }
