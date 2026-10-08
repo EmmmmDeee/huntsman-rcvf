@@ -455,9 +455,11 @@ fn gather_cmd(query: Option<String>) -> ExitCode {
         }
     }
     println!("--- seeknow");
-    if env::var_os("SEEKNOW_API_KEY").is_none_or(|v| v.is_empty()) {
+    let key_missing = env::var_os("SEEKNOW_API_KEY").is_none_or(|v| v.is_empty());
+    let cookie_missing = env::var_os("SEEKNOW_COOKIE").is_none_or(|v| v.is_empty());
+    if key_missing && cookie_missing {
         println!("source=seeknow");
-        println!("status=missing_key");
+        println!("status=missing_session");
         failed += 1;
     } else if lookup_cmd(Some("seeknow".into()), Some(query.clone())).ne(&ExitCode::SUCCESS) {
         failed += 1;
@@ -526,32 +528,40 @@ fn curl_get(url: &str) -> Result<(u16, String), String> {
 }
 
 fn curl_post_seeknow(query: &str) -> Result<(u16, String), String> {
-    let key = env::var("SEEKNOW_API_KEY").map_err(|_| "SEEKNOW_API_KEY missing".to_owned())?;
-    if key.trim().is_empty() {
-        return Err("SEEKNOW_API_KEY missing".into());
+    let key = env::var("SEEKNOW_API_KEY").unwrap_or_default();
+    let cookie = env::var("SEEKNOW_COOKIE").unwrap_or_default();
+    if key.trim().is_empty() && cookie.trim().is_empty() {
+        return Err("SEEKNOW_API_KEY or SEEKNOW_COOKIE missing".into());
     }
     let payload = serde_json::json!({
         "type": "auto",
         "query": query,
         "mode": "fast"
     });
+    let mut args = vec![
+        "-sS".to_string(),
+        "-X".to_string(),
+        "POST".to_string(),
+        "https://see-know.ru/api/v1/search".to_string(),
+        "-H".to_string(),
+        "Content-Type: application/json".to_string(),
+        "--max-time".to_string(),
+        "30".to_string(),
+        "-w".to_string(),
+        "\n%{http_code}".to_string(),
+        "-d".to_string(),
+        payload.to_string(),
+    ];
+    if !key.trim().is_empty() {
+        args.push("-H".to_string());
+        args.push(format!("X-API-Key: {}", key.trim()));
+    }
+    if !cookie.trim().is_empty() {
+        args.push("-H".to_string());
+        args.push(format!("Cookie: {}", cookie.trim()));
+    }
     let output = std::process::Command::new("curl")
-        .args([
-            "-sS",
-            "-X",
-            "POST",
-            "https://see-know.ru/api/v1/search",
-            "-H",
-            "Content-Type: application/json",
-            "-H",
-            &format!("X-API-Key: {key}"),
-            "--max-time",
-            "30",
-            "-w",
-            "\n%{http_code}",
-            "-d",
-            &payload.to_string(),
-        ])
+        .args(args)
         .output()
         .map_err(|e| e.to_string())?;
     if !output.status.success() {
