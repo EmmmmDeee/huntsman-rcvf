@@ -1,9 +1,7 @@
-# huntsman-recon 0.7.0
+# Not the current engine
 
-`lookup exa QUERY` posts to api.exa.ai when `EXA_API_KEY` is set. A 402 is not a hit. No key is stored in the tree.
+The canonical Huntsman tree is `EmmmmDeee/Huntsman-Search-Engine-HSE-Termux-Android-Aarch64-Rust-`.
 
-Gather still calls Nominatim, data.gov.au, and Wikidata. Exa is included only when the key is present.
+The installed command is `huntsman-recon` from that repository. This crate is a divergent experiment. Do not install it over the Termux binary.
 
-
-
-
+SeekNow on the installed binary is `huntsman-recon seeknow search KIND VALUE --fast-only` and reads `HUNTSMAN_SEEKNOW_KEY`.
