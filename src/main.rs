@@ -40,7 +40,7 @@ fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: huntsman-recon check | run CASE_DIR | gather QUERY | lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|exa QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
+        "usage: huntsman-recon check | run CASE_DIR | gather QUERY | lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|exa QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
     );
 }
 
@@ -316,7 +316,7 @@ fn mutate(store: &Store, id: &str, op: impl FnOnce(&mut Session) -> Result<(), h
 
 fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
     let (Some(kind), Some(query)) = (kind, query) else {
-        eprintln!("usage: huntsman-recon lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|exa QUERY");
+        eprintln!("usage: huntsman-recon lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|exa QUERY");
         return ExitCode::from(64);
     };
     let url = match kind.as_str() {
@@ -342,6 +342,10 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
             urlencoding(&query)
         ),
         "rdap" => format!("https://rdap.org/domain/{}", domain_only(&query)),
+        "crtsh" => format!(
+            "https://crt.sh/?q={}&output=json",
+            urlencoding(&domain_only(&query))
+        ),
         "exa" => "https://api.exa.ai/search".into(),
         other => {
             eprintln!("unknown source: {other}");
@@ -382,6 +386,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
         "legislation" => huntsman_recon::external::parse_legislation(&body),
         "gleif" => huntsman_recon::external::parse_gleif(&body),
         "rdap" => huntsman_recon::external::parse_rdap(&body),
+        "crtsh" => huntsman_recon::external::parse_crtsh(&body),
         "exa" => huntsman_recon::external::parse_exa(status, &body),
         _ => unreachable!(),
     };
@@ -455,7 +460,11 @@ fn gather_cmd(query: Option<String>) -> ExitCode {
     }
     if query.contains('.') && !query.contains(' ') {
         println!("--- rdap");
-        if lookup_cmd(Some("rdap".into()), Some(query)).ne(&ExitCode::SUCCESS) {
+        if lookup_cmd(Some("rdap".into()), Some(query.clone())).ne(&ExitCode::SUCCESS) {
+            failed += 1;
+        }
+        println!("--- crtsh");
+        if lookup_cmd(Some("crtsh".into()), Some(query)).ne(&ExitCode::SUCCESS) {
             failed += 1;
         }
     }

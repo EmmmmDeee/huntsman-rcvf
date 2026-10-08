@@ -1,0 +1,10 @@
+[
+  {
+    "id": 24890111,
+    "common_name": "brisbane.qld.gov.au",
+    "name_value": "brisbane.qld.gov.au\nwww.brisbane.qld.gov.au",
+    "issuer_name": "C=US, O=Amazon, CN=Amazon RSA 2048 M01",
+    "not_before": "2026-01-01T00:00:00",
+    "not_after": "2026-12-31T23:59:59"
+  }
+]

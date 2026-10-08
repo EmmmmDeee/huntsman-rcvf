@@ -245,6 +245,41 @@ pub fn parse_rdap(body: &str) -> Result<Vec<SourceHit>, Error> {
     }])
 }
 
+/// crt.sh certificate rows. An HTML wall is not a hit.
+pub fn parse_crtsh(body: &str) -> Result<Vec<SourceHit>, Error> {
+    admit_body(200, body)?;
+    let value: Value = serde_json::from_str(body).map_err(|e| Error::Invalid(e.to_string()))?;
+    let Some(rows) = value.as_array() else {
+        return Err(Error::Invalid("crtsh array missing".into()));
+    };
+    let mut hits = Vec::new();
+    for row in rows {
+        let id = row
+            .get("id")
+            .map(std::string::ToString::to_string)
+            .unwrap_or_default();
+        if id.is_empty() {
+            continue;
+        }
+        let name = row
+            .get("common_name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        let names = row.get("name_value").and_then(Value::as_str).unwrap_or("");
+        let issuer = row.get("issuer_name").and_then(Value::as_str).unwrap_or("");
+        hits.push(SourceHit {
+            id,
+            label: name,
+            detail: format!("{issuer} names={names}"),
+            lat: None,
+            lon: None,
+            source: "crtsh".into(),
+        });
+    }
+    Ok(hits)
+}
+
 fn rdap_registrar(value: &Value) -> String {
     let Some(entities) = value.get("entities").and_then(Value::as_array) else {
         return String::new();
@@ -356,5 +391,10 @@ mod tests {
         assert_eq!(rdap[0].label, "Department of Finance - QLD");
         assert!(rdap[0].detail.contains("ns-1010.awsdns-62.net"));
         assert!(parse_rdap(r#"{"errorCode":404,"title":"Not Found"}"#).is_err());
+        let certs = parse_crtsh(include_str!("../fixtures/crtsh-brisbane.json")).unwrap();
+        assert_eq!(certs[0].id, "24890111");
+        assert_eq!(certs[0].label, "brisbane.qld.gov.au");
+        assert!(certs[0].detail.contains("www.brisbane.qld.gov.au"));
+        assert!(parse_crtsh("<html>just a moment</html>").is_err());
     }
 }
