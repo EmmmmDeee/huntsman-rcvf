@@ -349,47 +349,74 @@ pub fn parse_exa(status: u16, body: &str) -> Result<Vec<SourceHit>, Error> {
     Ok(hits)
 }
 
-/// SeekNow search JSON. A missing key or an error object is not a hit.
+/// SeekNow search JSON or stream. A missing session or an error is not a hit.
 pub fn parse_seeknow(status: u16, body: &str) -> Result<Vec<SourceHit>, Error> {
     if status == 401 || status == 402 || status == 403 {
-        return Err(Error::Invalid("seeknow key rejected".into()));
+        return Err(Error::Invalid("seeknow session rejected".into()));
     }
     admit_body(status, body)?;
-    let value: Value = serde_json::from_str(body).map_err(|e| Error::Invalid(e.to_string()))?;
-    if value.get("error").is_some() {
-        return Err(Error::Invalid("seeknow error".into()));
+    if body.contains("QUERY_BLACKLISTED") {
+        return Err(Error::Invalid("seeknow query rejected".into()));
     }
-    let Some(rows) = value.get("results").and_then(Value::as_array) else {
-        return Err(Error::Invalid("seeknow results missing".into()));
-    };
     let mut hits = Vec::new();
-    for row in rows {
-        let id = row
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| row.get("source").and_then(Value::as_str).map(str::to_owned))
-            .unwrap_or_default();
-        if id.is_empty() {
+    for line in body.lines() {
+        let line = line.trim();
+        if line.is_empty() {
             continue;
         }
-        let label = row
-            .get("type")
-            .and_then(Value::as_str)
-            .or_else(|| row.get("source").and_then(Value::as_str))
-            .unwrap_or("")
-            .to_owned();
-        let source = row.get("source").and_then(Value::as_str).unwrap_or("");
-        hits.push(SourceHit {
-            id,
-            label,
-            detail: source.to_owned(),
-            lat: None,
-            lon: None,
-            source: "seeknow".into(),
-        });
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if value.get("error").is_some() {
+            return Err(Error::Invalid("seeknow error".into()));
+        }
+        collect_seeknow(&value, &mut hits);
+    }
+    if hits.is_empty() {
+        if let Ok(value) = serde_json::from_str::<Value>(body) {
+            if value.get("error").is_some() {
+                return Err(Error::Invalid("seeknow error".into()));
+            }
+            collect_seeknow(&value, &mut hits);
+        }
     }
     Ok(hits)
+}
+
+fn collect_seeknow(value: &Value, hits: &mut Vec<SourceHit>) {
+    if let Some(rows) = value.get("results").and_then(Value::as_array) {
+        for row in rows {
+            push_seeknow(row, hits);
+        }
+        return;
+    }
+    push_seeknow(value, hits);
+}
+
+fn push_seeknow(row: &Value, hits: &mut Vec<SourceHit>) {
+    let id = row
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| row.get("source").and_then(Value::as_str))
+        .unwrap_or("");
+    if id.is_empty() {
+        return;
+    }
+    let label = row
+        .get("type")
+        .and_then(Value::as_str)
+        .or_else(|| row.get("source").and_then(Value::as_str))
+        .unwrap_or("")
+        .to_owned();
+    let source = row.get("source").and_then(Value::as_str).unwrap_or("");
+    hits.push(SourceHit {
+        id: id.to_owned(),
+        label,
+        detail: source.to_owned(),
+        lat: None,
+        lon: None,
+        source: "seeknow".into(),
+    });
 }
 
 /// Two public fixes. Returns meters. Does not infer identity.

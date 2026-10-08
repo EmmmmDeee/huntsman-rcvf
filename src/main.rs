@@ -347,7 +347,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
             urlencoding(&domain_only(&query))
         ),
         "exa" => "https://api.exa.ai/search".into(),
-        "seeknow" => "https://see-know.ru/api/v1/search".into(),
+        "seeknow" => "https://see-know.ru/api/search/stream".into(),
         other => {
             eprintln!("unknown source: {other}");
             return ExitCode::from(64);
@@ -533,16 +533,21 @@ fn curl_post_seeknow(query: &str) -> Result<(u16, String), String> {
     if key.trim().is_empty() && cookie.trim().is_empty() {
         return Err("SEEKNOW_API_KEY or SEEKNOW_COOKIE missing".into());
     }
-    let payload = serde_json::json!({
-        "type": "auto",
-        "query": query,
-        "mode": "fast"
-    });
+    let url = if cookie.trim().is_empty() {
+        "https://see-know.ru/api/v1/search"
+    } else {
+        "https://see-know.ru/api/search/stream"
+    };
+    let payload = if cookie.trim().is_empty() {
+        serde_json::json!({"query": query, "type": "auto", "limit": 20})
+    } else {
+        serde_json::json!({"query": query, "stream": true})
+    };
     let mut args = vec![
         "-sS".to_string(),
         "-X".to_string(),
         "POST".to_string(),
-        "https://see-know.ru/api/v1/search".to_string(),
+        url.to_string(),
         "-H".to_string(),
         "Content-Type: application/json".to_string(),
         "--max-time".to_string(),
@@ -554,7 +559,7 @@ fn curl_post_seeknow(query: &str) -> Result<(u16, String), String> {
     ];
     if !key.trim().is_empty() {
         args.push("-H".to_string());
-        args.push(format!("X-API-Key: {}", key.trim()));
+        args.push(format!("Authorization: Bearer {}", key.trim()));
     }
     if !cookie.trim().is_empty() {
         args.push("-H".to_string());
