@@ -280,6 +280,43 @@ pub fn parse_crtsh(body: &str) -> Result<Vec<SourceHit>, Error> {
     Ok(hits)
 }
 
+/// Wikipedia geosearch. A wall is not a hit. Distance is not identity.
+pub fn parse_wikigeo(body: &str) -> Result<Vec<SourceHit>, Error> {
+    admit_body(200, body)?;
+    let value: Value = serde_json::from_str(body).map_err(|e| Error::Invalid(e.to_string()))?;
+    let Some(rows) = value
+        .get("query")
+        .and_then(|q| q.get("geosearch"))
+        .and_then(Value::as_array)
+    else {
+        return Err(Error::Invalid("wikigeo rows missing".into()));
+    };
+    let mut hits = Vec::new();
+    for row in rows {
+        let Some(id) = row.get("pageid").and_then(Value::as_u64) else {
+            continue;
+        };
+        let lat = row.get("lat").and_then(Value::as_f64);
+        let lon = row.get("lon").and_then(Value::as_f64);
+        let (Some(lat), Some(lon)) = (lat, lon) else {
+            continue;
+        };
+        if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
+            continue;
+        }
+        let dist = row.get("dist").and_then(Value::as_f64).unwrap_or(0.0);
+        hits.push(SourceHit {
+            id: id.to_string(),
+            label: row.get("title").and_then(Value::as_str).unwrap_or("").to_owned(),
+            detail: format!("dist_m={dist:.0}"),
+            lat: Some(lat),
+            lon: Some(lon),
+            source: "wikigeo".into(),
+        });
+    }
+    Ok(hits)
+}
+
 fn rdap_registrar(value: &Value) -> String {
     let Some(entities) = value.get("entities").and_then(Value::as_array) else {
         return String::new();
@@ -472,5 +509,9 @@ mod tests {
         let parsed = parse_seeknow(200, schema).unwrap();
         assert_eq!(parsed[0].source, "seeknow");
         assert_eq!(parsed[0].id, "schema");
+        let geo = parse_wikigeo(include_str!("../fixtures/wikigeo-brisbane.json")).unwrap();
+        assert_eq!(geo[0].id, "2142275");
+        assert_eq!(geo[0].label, "Queen Street Mall");
+        assert!(parse_wikigeo("<html>just a moment</html>").is_err());
     }
 }

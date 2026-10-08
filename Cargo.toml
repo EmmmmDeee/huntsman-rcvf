@@ -4,7 +4,7 @@
 
 [package]
 name = "huntsman-recon"
-version = "0.14.0"
+version = "0.15.0"
 edition = "2024"
 rust-version = "1.87"
 license = "MIT OR Apache-2.0"

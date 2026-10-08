@@ -40,7 +40,7 @@ fn main() -> ExitCode {
 
 fn usage() {
     eprintln!(
-        "usage: huntsman-recon check | run CASE_DIR | gather QUERY | lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|exa|seeknow QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
+        "usage: huntsman-recon check | run CASE_DIR | gather QUERY | lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|wikigeo|exa|seeknow QUERY | geo A B | search DIR QUERY | resolve PEOPLE.json | coloc FIXES.json RADIUS WINDOW | classify STATUS BODY | session ..."
     );
 }
 
@@ -316,7 +316,7 @@ fn mutate(store: &Store, id: &str, op: impl FnOnce(&mut Session) -> Result<(), h
 
 fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
     let (Some(kind), Some(query)) = (kind, query) else {
-        eprintln!("usage: huntsman-recon lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|exa|seeknow QUERY");
+        eprintln!("usage: huntsman-recon lookup wikidata|nominatim|abn|datagov|legislation|gleif|rdap|crtsh|wikigeo|exa|seeknow QUERY");
         return ExitCode::from(64);
     };
     let url = match kind.as_str() {
@@ -345,6 +345,10 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
         "crtsh" => format!(
             "https://crt.sh/?q={}&output=json",
             urlencoding(&domain_only(&query))
+        ),
+        "wikigeo" => format!(
+            "https://en.wikipedia.org/w/api.php?action=query&list=geosearch&gscoord={}&gsradius=1000&gslimit=10&format=json",
+            wiki_coord(&query)
         ),
         "exa" => "https://api.exa.ai/search".into(),
         "seeknow" => "https://see-know.ru/api/search/stream".into(),
@@ -396,6 +400,7 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
         "gleif" => huntsman_recon::external::parse_gleif(&body),
         "rdap" => huntsman_recon::external::parse_rdap(&body),
         "crtsh" => huntsman_recon::external::parse_crtsh(&body),
+        "wikigeo" => huntsman_recon::external::parse_wikigeo(&body),
         "exa" => huntsman_recon::external::parse_exa(status, &body),
         "seeknow" => huntsman_recon::external::parse_seeknow(status, &body),
         _ => unreachable!(),
@@ -426,6 +431,10 @@ fn lookup_cmd(kind: Option<String>, query: Option<String>) -> ExitCode {
 
 fn digits_only(raw: &str) -> String {
     raw.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
+fn wiki_coord(raw: &str) -> String {
+    raw.trim().replace(' ', "").replace(',', "|")
 }
 
 fn domain_only(raw: &str) -> String {
